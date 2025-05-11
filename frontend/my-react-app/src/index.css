@@ -1,0 +1,29 @@
+/* Image Placeholder Styles */
+.image-placeholder {
+  background-color: #f0f0f0;
+  border: 1px dashed #ccc;
+  padding: 20px;
+  margin: 10px 0;
+  text-align: center;
+  color: #666;
+}
+
+.formula-image {
+  display: block;
+  margin: 10px 0;
+  max-width: 100%;
+  height: auto;
+  background-color: #f9f9f9;
+  padding: 10px;
+  border: 1px solid #ddd;
+}
+
+/* Reactor Diagram Styles */
+.reactor-diagram {
+  width: 100%;
+  max-width: 300px;
+  margin: 15px 0;
+  border: 1px solid #eee;
+  padding: 5px;
+  background-color: white;
+}
