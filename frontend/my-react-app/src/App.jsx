@@ -856,10 +856,10 @@ const renderGraphs = () => {
                   required
                 >
                   <option value="">Select Reactor Type</option>
-                  <option value="Batch">1. Batch Reactor</option>
-                  <option value="CSTR">2. CSTR</option>
-                  <option value="PFR">3. PFR</option>
-                  <option value="PBR">4. PBR</option>
+                  {/*<option value="Batch">1. Batch Reactor</option>*/}
+                  <option value="CSTR">1. CSTR</option>
+                  <option value="PFR">2. PFR</option>
+                  <option value="PBR">3. PBR</option>
                 </select>
               </div>
                 
