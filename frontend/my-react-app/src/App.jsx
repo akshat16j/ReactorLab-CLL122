@@ -281,6 +281,11 @@ const Calculator = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [graphData, setGraphData] = useState(null);
+  const [reaction, setReaction] = useState({
+    reactants: [{ coefficient: 1, species: '' }],
+    products: [{ coefficient: 1, species: '' }],
+    gammaA0: 1.0
+  });
 
   // Calculation functions
   const arrhenius = (k0, Ea, T) => {
@@ -318,47 +323,102 @@ const Calculator = () => {
       P0: parseFloat(formData.P0)
     };
 
+    const handleReactionChange = (type, index, field, value) => {
+      const updated = [...reaction[type]];
+      updated[index][field] = value;
+      setReaction(prev => ({ ...prev, [type]: updated }));
+    };
+  
+    const addReactionComponent = (type) => {
+      setReaction(prev => ({
+        ...prev,
+        [type]: [...prev[type], { coefficient: 1, species: '' }]
+      }));
+    };
+  
+    const removeReactionComponent = (type, index) => {
+      setReaction(prev => ({
+        ...prev,
+        [type]: prev[type].filter((_, i) => i !== index)
+      }));
+    };
+
+    
     try {
       let result = {};
       let profiles = {};
 
-      if (formData.reactorType === 'CSTR') {
-        // CSTR calculation
-        const T_exit = params.T0 ;
-        const r_exit = rateExpression(
-          params.CA0 * (1 - params.X),
-          T_exit,
-          params.k0,
-          params.Ea,
-          params.n,
-          params.isReversible,
-          params.CA0
-        );
-        result.volume = (params.F0 * params.X) / r_exit;
-        
-        // Generate profile data
-        profiles = generateCSTRProfile(params);
-      } 
-      else if (formData.reactorType === 'Batch') {
-        // Batch reactor calculation
-        const sol = solveBatch(params);
-        result.time = sol.time;
-        profiles = sol.profiles;
+      if (params.X === 0) {
+        // For all reactor types, volume/time should be 0 when X=0
+        if (formData.reactorType === 'Batch') {
+          result.time = 0;
+          profiles = {
+            conversion: [0],
+            temperature: [params.T0],
+            time: [0],
+            rate: [0]
+          };
+        } else if (formData.reactorType === 'CSTR') {
+          result.volume = 0;
+          profiles = {
+            conversion: [0],
+            temperature: [params.T0],
+            rate: [0],
+            volume: [0]
+          };
+        } else if (formData.reactorType === 'PFR') {
+          result.volume = 0;
+          profiles = {
+            conversion: [0],
+            temperature: [params.T0],
+            volume: [0],
+            rate: [0]
+          };
+        } else if (formData.reactorType === 'PBR') {
+          result.volume = 0;
+          result.P_out = params.P0;
+          profiles = {
+            conversion: [0],
+            temperature: [params.T0],
+            pressure: [params.P0],
+            volume: [0],
+            rate: [0]
+          };
+        }
+      } else {
+        // Normal calculations when X > 0
+        if (formData.reactorType === 'CSTR') {
+          const T_exit = params.T0 + (-params.dHrxn * params.CA0 * params.X) / (params.F0 * params.Cp);
+          const r_exit = rateExpression(
+            params.CA0 * (1 - params.X),
+            T_exit,
+            params.k0,
+            params.Ea,
+            params.n,
+            params.isReversible,
+            params.CA0
+          );
+          result.volume = (params.F0 * params.X) / r_exit;
+          profiles = generateCSTRProfile(params);
+        } 
+        else if (formData.reactorType === 'Batch') {
+          const sol = solveBatch(params);
+          result.time = sol.time;
+          profiles = sol.profiles;
+        }
+        else if (formData.reactorType === 'PFR') {
+          const sol = solvePFR(params);
+          result.volume = sol.volume;
+          profiles = sol.profiles;
+        }
+        else if (formData.reactorType === 'PBR') {
+          const sol = solvePBR(params);
+          result.volume = sol.volume;
+          result.P_out = sol.P_out;
+          profiles = sol.profiles;
+        }
       }
-      else if (formData.reactorType === 'PFR') {
-        // PFR calculation
-        const sol = solvePFR(params);
-        result.volume = sol.volume;
-        profiles = sol.profiles;
-      }
-      else if (formData.reactorType === 'PBR') {
-        // PBR calculation
-        const sol = solvePBR(params);
-        result.volume = sol.volume;
-        result.P_out = sol.P_out;
-        profiles = sol.profiles;
-      }
-
+  
       setResults(result);
       setGraphData(profiles);
     } catch (err) {
@@ -395,38 +455,113 @@ const Calculator = () => {
 
   // Reactor-specific solvers
   const solveBatch = (params) => {
+    // Improved ODE solver using Runge-Kutta 4th order
     const ode = (t, y) => {
       const [X, T] = y;
       const CA = params.CA0 * (1 - X);
-      const r = rateExpression(CA, T, params.k0, params.Ea, params.n, params.isReversible, params.CA0);
-      return [r / params.CA0, (params.dHrxn * r) / (params.CA0 * params.Cp)];
-    };
-
-    const sol = solveIVP(
-      ode,
-      [0, params.T0],
-      [0, 1e5],
-      1000,
-      (t, y) => params.X - y[0] // Stop when conversion reached
-    );
-
-    return {
-      time: sol.t[sol.t.length - 1],
-      profiles: {
-        conversion: sol.y.map(y => y[0]),
-        temperature: sol.y.map(y => y[1]),
-        time: sol.t,
-        rate: sol.y.map((y, i) => rateExpression(
-          params.CA0 * (1 - y[0]),
-          y[1],
-          params.k0,
-          params.Ea,
-          params.n,
-          params.isReversible,
-          params.CA0
-        ))
+      
+      // Calculate reaction rate with proper reverse reaction handling
+      const k_fwd = arrhenius(params.k0, params.Ea, T);
+      let r = k_fwd * Math.pow(CA, params.n);
+      
+      if (params.isReversible) {
+        const k_rev = arrhenius(params.k0_rev, params.Ea_rev, T);
+        const CB = params.CA0 * (params.theta_B - (params.b/params.a) * X);
+        r -= k_rev * Math.pow(CB, params.m);
       }
+  
+      // Correct energy balance with density (ρ) if available
+      const dXdt = r / params.CA0;
+      const dTdt = (params.dHrxn * r) / (params.rho * params.Cp);
+  
+      return [dXdt, dTdt];
     };
+  
+    // Adaptive step-size RK4 solver
+    const adaptiveRK4 = (ode, y0, t0, tMax, maxSteps, targetX) => {
+      let h = 1; // Initial step size
+      let t = t0;
+      let y = [...y0];
+      const results = { t: [t], X: [y[0]], T: [y[1]] };
+  
+      for (let i = 0; i < maxSteps && t < tMax; i++) {
+        let k1, k2, k3, k4;
+        let yNext, error;
+        
+        do {
+          // RK4 step
+          k1 = ode(t, y);
+          k2 = ode(t + h/2, y.map((yi, idx) => yi + h/2 * k1[idx]));
+          k3 = ode(t + h/2, y.map((yi, idx) => yi + h/2 * k2[idx]));
+          k4 = ode(t + h, y.map((yi, idx) => yi + h * k3[idx]));
+          
+          const y4 = y.map((yi, idx) => 
+            yi + h/6 * (k1[idx] + 2*k2[idx] + 2*k3[idx] + k4[idx])
+          );
+          
+          // Error estimation
+          const y2 = y.map((yi, idx) => 
+            yi + h/2 * (k1[idx] + k2[idx] + k3[idx])
+          );
+          
+          error = Math.abs(y4[0] - y2[0]);
+          if (error > 1e-4) h /= 2;
+        } while (error > 1e-4 && h > 1e-6);
+  
+        // Update values
+        t += h;
+        y = y4;
+        h *= 2; // Double step size for next iteration
+  
+        // Store results
+        results.t.push(t);
+        results.X.push(y[0]);
+        results.T.push(y[1]);
+  
+        // Check for target conversion
+        if (y[0] >= targetX) break;
+      }
+  
+      // Find exact time using linear interpolation
+      const lastIndex = results.X.findIndex(x => x >= params.X);
+      if (lastIndex === -1) throw new Error("Target conversion not achieved");
+      
+      const tStart = results.t[lastIndex-1];
+      const tEnd = results.t[lastIndex];
+      const xStart = results.X[lastIndex-1];
+      const xEnd = results.X[lastIndex];
+      
+      const exactTime = tStart + (params.X - xStart) * (tEnd - tStart) / (xEnd - xStart);
+  
+      return {
+        time: exactTime,
+        profiles: {
+          conversion: results.X,
+          temperature: results.T,
+          time: results.t,
+          rate: results.X.map((X, i) => {
+            const CA = params.CA0 * (1 - X);
+            return rateExpression(CA, results.T[i], params);
+          })
+        }
+      };
+    };
+  
+    // Solve with adaptive RK4
+    try {
+      const sol = adaptiveRK4(
+        ode,
+        [0, params.T0],  // Initial conditions [X, T]
+        0,               // Start time
+        1e6,             // Max time
+        1000,            // Max steps
+        params.X          // Target conversion
+      );
+  
+      return sol;
+    } catch (err) {
+      throw new Error("Batch reactor solution failed: ${err.message}");
+    }
   };
 
   const solvePFR = (params) => {
@@ -691,7 +826,7 @@ const renderGraphs = () => {
             "Pressure vs Volume",
             graphData.volume,
             graphData.pressure,
-            'Volume (m³)',
+            'Volume (L)',
             'Pressure (Pa)',
             '#2ECC71'
           )}
@@ -727,7 +862,7 @@ const renderGraphs = () => {
                   <option value="PBR">4. PBR</option>
                 </select>
               </div>
-
+                
               <div className="form-group">
                 <label>Initial concentration (CAo, mol/L)</label>
                 <input
@@ -961,19 +1096,23 @@ const renderGraphs = () => {
             <h2>Calculation Results</h2>
             
             <div className="results-box">
-              {results.volume && (
+              {results.volume !== undefined && (  // Check for undefined, not truthy
                 <div className="result-item">
                   <span>Reactor Volume</span>
-                  <span>{results.volume.toFixed(2)} L</span>
+                  <span>
+                    {results.volume > 0 ? results.volume.toFixed(2) : "0"} L
+                  </span>
                 </div>
               )}
-              {results.time && (
+              {results.time !== undefined && (
                 <div className="result-item">
                   <span>Reaction Time</span>
-                  <span>{results.time.toFixed(2)} s</span>
+                  <span>
+                    {results.time > 0 ? results.time.toFixed(2) : "0"} s
+                  </span>
                 </div>
               )}
-              {results.P_out && (
+              {results.P_out !== undefined && (
                 <div className="result-item">
                   <span>Outlet Pressure</span>
                   <span>{results.P_out.toFixed(0)} Pa</span>
