@@ -324,7 +324,7 @@ const Calculator = () => {
 
       if (formData.reactorType === 'CSTR') {
         // CSTR calculation
-        const T_exit = params.T0 + (-params.dHrxn * params.CA0 * params.X) / (params.F0 * params.Cp);
+        const T_exit = params.T0 ;
         const r_exit = rateExpression(
           params.CA0 * (1 - params.X),
           T_exit,
@@ -334,7 +334,7 @@ const Calculator = () => {
           params.isReversible,
           params.CA0
         );
-        result.volume = (params.F0 * params.CA0 * params.X) / r_exit;
+        result.volume = (params.F0 * params.X) / r_exit;
         
         // Generate profile data
         profiles = generateCSTRProfile(params);
@@ -964,7 +964,7 @@ const renderGraphs = () => {
               {results.volume && (
                 <div className="result-item">
                   <span>Reactor Volume</span>
-                  <span>{results.volume.toFixed(2)} m³</span>
+                  <span>{results.volume.toFixed(2)} L</span>
                 </div>
               )}
               {results.time && (
