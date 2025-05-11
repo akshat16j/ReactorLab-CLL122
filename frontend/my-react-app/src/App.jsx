@@ -780,7 +780,7 @@ const renderGraphs = () => {
     );
   };
 
-  const xLabel = formData.reactorType === 'Batch' ? 'Time (s)' : 'Volume (m³)';
+  const xLabel = formData.reactorType === 'Batch' ? 'Time (s)' : 'Volume (L)';
 
   return (
     <div className="results-section">
