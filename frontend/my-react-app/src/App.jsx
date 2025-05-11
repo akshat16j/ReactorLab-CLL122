@@ -995,17 +995,7 @@ const renderGraphs = () => {
                 />
               </div>
 
-              <div className="form-group checkbox-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    name="isReversible"
-                    checked={formData.isReversible}
-                    onChange={handleChange}
-                  />
-                  Is Reversible?
-                </label>
-              </div>
+            
 
               {/* PBR Specific Fields */}
               {showPBRFields && (
